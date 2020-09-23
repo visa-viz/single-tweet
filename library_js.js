@@ -5,7 +5,7 @@ mergeInto(LibraryManager.library, {
     GLctx.pixelStorei(0x9240/*GLctx.UNPACK_FLIP_Y_WEBGL*/, false);
   },
   upload_unicode_char_to_texture__deps: ['uploadFlipped'],
-  upload_unicode_char_to_texture: function(unicodeChar, charSize, bold, outCharWidth, outCharBaseline, outTextureWidth, outTextureHeight) {
+  upload_unicode_char_to_texture: function(unicodeChar, charSize, bold, r, g, b, outCharWidth, outCharBaseline, outTextureWidth, outTextureHeight) {
     var canvas = document.createElement('canvas');
     canvas.width = charSize;
     canvas.height = charSize * 2;
@@ -16,7 +16,7 @@ mergeInto(LibraryManager.library, {
     ctx.globalAlpha = 0;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = 'white';
+    ctx.fillStyle = `rgb(${r * 255} ${g * 255} ${b * 255})`;
     ctx.font = (bold ? 'bold ' : '') + charSize + 'px Segoe UI';
     ctx.textBaseline = 'bottom';
     var text = String.fromCharCode(unicodeChar);
