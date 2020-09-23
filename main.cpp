@@ -102,18 +102,6 @@ void init_webgl(int width, int height)
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &whitePixel);
 }
 
-typedef void (*tick_func)(double t, double dt);
-
-static EM_BOOL tick(double time, void *userData)
-{
-    static double t0;
-    double dt = time - t0;
-    t0 = time;
-    tick_func f = (tick_func)(userData);
-    f(time, dt);
-    return EM_TRUE;
-}
-
 void clear_screen(float r, float g, float b, float a)
 {
     glClearColor(r, g, b, a);
