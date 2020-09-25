@@ -13,7 +13,10 @@ extern "C"
 }
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE glContext;
-static GLuint quad, colorPos, matPos, solidColor;
+static GLuint quad, solidColor;
+static GLuint texturedRectColorPos, texturedRectMatPos;
+static GLuint roundedRectColorPos, roundedRectMatPos, roundedRectWidthPos, roundedRectHeightPos, roundedRectRadiusPos;
+static GLuint textured_rect_program, rounded_rect_program;
 static float pixelWidth, pixelHeight;
 
 static GLuint compile_shader(GLenum shaderType, const char *src)
@@ -21,6 +24,17 @@ static GLuint compile_shader(GLenum shaderType, const char *src)
     GLuint shader = glCreateShader(shaderType);
     glShaderSource(shader, 1, &src, NULL);
     glCompileShader(shader);
+    GLint compileStatus;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compileStatus);
+    if (compileStatus == GL_FALSE)
+    {
+        printf("Shader source: %s\n", src);
+        printf("Compile status: %i", compileStatus);
+        GLchar infoLog[10000];
+        GLsizei infoLogLength;
+        glGetShaderInfoLog(shader, 10000, &infoLogLength, infoLog);
+        printf("Shader compile log: %s\n", infoLog);
+    }
     return shader;
 }
 
@@ -31,7 +45,26 @@ static GLuint create_program(GLuint vertexShader, GLuint fragmentShader)
     glAttachShader(program, fragmentShader);
     glBindAttribLocation(program, 0, "pos");
     glLinkProgram(program);
-    glUseProgram(program);
+    GLint status;
+    glGetProgramiv(program, GL_LINK_STATUS, &status);
+    if (status == GL_FALSE)
+    {
+        printf("Program link status: %i\n", status);
+        GLchar infoLog[10000];
+        GLsizei infoLogLength;
+        glGetProgramInfoLog(program, 10000, &infoLogLength, infoLog);
+        printf("Program info log: %s\n", infoLog);
+    }
+    glValidateProgram(program);
+    glGetProgramiv(program, GL_VALIDATE_STATUS, &status);
+    if (status == GL_FALSE)
+    {
+        printf("Program validate status: %i\n", status);
+        GLchar infoLog[10000];
+        GLsizei infoLogLength;
+        glGetProgramInfoLog(program, 10000, &infoLogLength, infoLog);
+        printf("Program info log: %s\n", infoLog);
+    }
     return program;
 }
 
@@ -65,28 +98,29 @@ void init_webgl(int width, int height)
     pixelHeight = 2.f / height;
 
     static const char vertex_shader[] =
-        "attribute vec4 pos;"
-        "varying vec2 uv;"
-        "uniform mat4 mat;"
-        "void main(){"
-        "uv=pos.xy;"
-        "gl_Position=mat*pos;"
-        "}";
+        #include "vertex_shader.glsl"
     GLuint vs = compile_shader(GL_VERTEX_SHADER, vertex_shader);
 
-    static const char fragment_shader[] =
-        "precision lowp float;"
-        "uniform sampler2D tex;"
-        "varying vec2 uv;"
-        "uniform vec4 color;"
-        "void main(){"
-        "gl_FragColor=color*texture2D(tex,uv);"
-        "}";
-    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fragment_shader);
+    static const char textured_rect_fragment_shader[] =
+        #include "texture_fragment_shader.glsl"
+    GLuint trfs = compile_shader(GL_FRAGMENT_SHADER, textured_rect_fragment_shader);
+    textured_rect_program = create_program(vs, trfs);
 
-    GLuint program = create_program(vs, fs);
-    colorPos = glGetUniformLocation(program, "color");
-    matPos = glGetUniformLocation(program, "mat");
+    static const char rounded_rect_fragment_shader[] = 
+        #include "rounded_rect_fragment_shader.glsl"
+    GLuint rrfs = compile_shader(GL_FRAGMENT_SHADER, rounded_rect_fragment_shader);
+    rounded_rect_program = create_program(vs, rrfs);
+
+    glUseProgram(textured_rect_program);
+
+    texturedRectColorPos = glGetUniformLocation(textured_rect_program, "color");
+    texturedRectMatPos = glGetUniformLocation(textured_rect_program, "mat");
+    roundedRectColorPos = glGetUniformLocation(rounded_rect_program, "color");
+    roundedRectMatPos = glGetUniformLocation(rounded_rect_program, "mat");
+    roundedRectWidthPos = glGetUniformLocation(rounded_rect_program, "w");
+    roundedRectHeightPos = glGetUniformLocation(rounded_rect_program, "h");
+    roundedRectRadiusPos = glGetUniformLocation(rounded_rect_program, "radius");
+
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -108,11 +142,29 @@ void clear_screen(float r, float g, float b, float a)
     glClear(GL_COLOR_BUFFER_BIT);
 }
 
+static void prepare_for_rounded_rectangles()
+{
+    glUseProgram(rounded_rect_program);
+}
+
+static void fill_rounded_rectangle(float x0, float y0, float x1, float y1, float radius, float r, float g, float b, float a)
+{
+    glUseProgram(rounded_rect_program);
+    float mat[16] = {(x1 - x0) * pixelWidth, 0, 0, 0, 0, (y1 - y0) * pixelHeight, 0, 0, 0, 0, 1, 0, x0 * pixelWidth - 1.f, y0 * pixelHeight - 1.f, 0, 1};
+    glUniformMatrix4fv(roundedRectMatPos, 1, 0, mat);
+    glUniform4f(roundedRectColorPos, r, g, b, a);
+    glUniform1f(roundedRectWidthPos, x1 - x0);
+    glUniform1f(roundedRectHeightPos, y1 - y0);
+    glUniform1f(roundedRectRadiusPos, radius);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
 static void fill_textured_rectangle(float x0, float y0, float x1, float y1, float r, float g, float b, float a, GLuint texture)
 {
+    glUseProgram(textured_rect_program);
     float mat[16] = {(x1 - x0) * pixelWidth, 0, 0, 0, 0, (y1 - y0) * pixelHeight, 0, 0, 0, 0, 1, 0, x0 * pixelWidth - 1.f, y0 * pixelHeight - 1.f, 0, 1};
-    glUniformMatrix4fv(matPos, 1, 0, mat);
-    glUniform4f(colorPos, r, g, b, a);
+    glUniformMatrix4fv(texturedRectMatPos, 1, 0, mat);
+    glUniform4f(texturedRectColorPos, r, g, b, a);
     glBindTexture(GL_TEXTURE_2D, texture);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
@@ -226,9 +278,11 @@ const char *lines[] = {line1, line2, line3, line4};
 // Per-frame animation tick.
 EM_BOOL draw_frame(double t, void *)
 {
-    clear_screen(1, 1, 1, 1);
+    clear_screen(1.0, 1.0, 1.0, 1);
 
     // Outline
+    fill_rounded_rectangle(15 * 1.75, HEIGHT - 164 * 1.75, 565 * 1.75, HEIGHT - 15 * 1.75, 15 * 1.75, 204.0 / 255, 214.0 / 255, 221.0 / 255, 1.0);
+    fill_rounded_rectangle(16 * 1.75, HEIGHT - 163 * 1.75, 564 * 1.75, HEIGHT - 16 * 1.75, 14 * 1.75, 1.0, 1.0, 1.0, 1.0);
 
     // Avatar
     fill_image((int)(30 * 1.75), (int)(HEIGHT - (25 + 49) * 1.75), 49.0 / 205 * 1.75, 1.0, 1.0, 1.0, 1.0, "avatar.png");
