@@ -29,7 +29,7 @@ static GLuint compile_shader(GLenum shaderType, const char *src)
     if (compileStatus == GL_FALSE)
     {
         printf("Shader source: %s\n", src);
-        printf("Compile status: %i", compileStatus);
+        printf("Compile status: %i\n", compileStatus);
         GLchar infoLog[10000];
         GLsizei infoLogLength;
         glGetShaderInfoLog(shader, 10000, &infoLogLength, infoLog);
