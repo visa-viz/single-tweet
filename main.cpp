@@ -136,42 +136,53 @@ void init_webgl(int width, int height)
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &whitePixel);
 }
 
-void clear_screen(float r, float g, float b, float a)
+struct Color
 {
-    glClearColor(r, g, b, a);
+    float r;
+    float g;
+    float b;
+    float a;
+};
+
+void clear_screen(Color color)
+{
+    glClearColor(color.r, color.g, color.b, color.a);
     glClear(GL_COLOR_BUFFER_BIT);
 }
 
-static void prepare_for_rounded_rectangles()
+static void fill_rounded_rectangle(float x0, float y0, float x1, float y1, float radius, float scaleFactor, Color color)
 {
     glUseProgram(rounded_rect_program);
-}
-
-static void fill_rounded_rectangle(float x0, float y0, float x1, float y1, float radius, float r, float g, float b, float a)
-{
-    glUseProgram(rounded_rect_program);
-    float mat[16] = {(x1 - x0) * pixelWidth, 0, 0, 0, 0, (y1 - y0) * pixelHeight, 0, 0, 0, 0, 1, 0, x0 * pixelWidth - 1.f, y0 * pixelHeight - 1.f, 0, 1};
+    float mat[16] = {
+        (x1 - x0) * scaleFactor * pixelWidth, 0, 0, 0,
+        0, (y1 - y0) * scaleFactor * pixelHeight, 0, 0,
+        0, 0, 1, 0,
+        x0 * scaleFactor * pixelWidth - 1.f, y0 * scaleFactor * pixelHeight - 1.f, 0, 1};
     glUniformMatrix4fv(roundedRectMatPos, 1, 0, mat);
-    glUniform4f(roundedRectColorPos, r, g, b, a);
-    glUniform1f(roundedRectWidthPos, x1 - x0);
-    glUniform1f(roundedRectHeightPos, y1 - y0);
+    glUniform4f(roundedRectColorPos, color.r, color.g, color.b, color.a);
+    glUniform1f(roundedRectWidthPos, (x1 - x0) * scaleFactor);
+    glUniform1f(roundedRectHeightPos, (y1 - y0) * scaleFactor);
     glUniform1f(roundedRectRadiusPos, radius);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
-static void fill_textured_rectangle(float x0, float y0, float x1, float y1, float r, float g, float b, float a, GLuint texture)
+static void fill_textured_rectangle_raw(float x0, float y0, float x1, float y1, Color color, GLuint texture)
 {
     glUseProgram(textured_rect_program);
-    float mat[16] = {(x1 - x0) * pixelWidth, 0, 0, 0, 0, (y1 - y0) * pixelHeight, 0, 0, 0, 0, 1, 0, x0 * pixelWidth - 1.f, y0 * pixelHeight - 1.f, 0, 1};
+    float mat[16] = {
+        (x1 - x0) * pixelWidth, 0, 0, 0,
+        0, (y1 - y0) * pixelHeight, 0, 0,
+        0, 0, 1, 0,
+        x0 * pixelWidth - 1.f, y0 * pixelHeight - 1.f, 0, 1};
     glUniformMatrix4fv(texturedRectMatPos, 1, 0, mat);
-    glUniform4f(texturedRectColorPos, r, g, b, a);
+    glUniform4f(texturedRectColorPos, color.r, color.g, color.b, color.a);
     glBindTexture(GL_TEXTURE_2D, texture);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
-void fill_solid_rectangle(float x0, float y0, float x1, float y1, float r, float g, float b, float a)
+static void fill_textured_rectangle(float x0, float y0, float x1, float y1, float scaleFactor, Color color, GLuint texture)
 {
-    fill_textured_rectangle(x0, y0, x1, y1, r, g, b, a, solidColor);
+    fill_textured_rectangle_raw(x0 * scaleFactor, y0 * scaleFactor, x1 * scaleFactor, y1 * scaleFactor, color, texture);
 }
 
 typedef struct Texture
@@ -201,12 +212,12 @@ static Texture *find_or_cache_url(const char *url)
     return 0; // fail
 }
 
-void fill_image(float x0, float y0, float scale, float r, float g, float b, float a, const char *url)
+void fill_image(float x0, float y0, float scale, float scaleFactor, Color color, const char *url)
 {
     Texture *t = find_or_cache_url(url);
     float x1 = x0 + t->w * scale;
     float y1 = y0 + t->h * scale;
-    fill_textured_rectangle(x0, y0, x1, y1, r, g, b, a, t->texture);
+    fill_textured_rectangle(x0, y0, x1, y1, scaleFactor, color, t->texture);
 }
 
 typedef struct Glyph
@@ -250,24 +261,34 @@ static Glyph *find_or_cache_character(unsigned int ch, int charSize, int bold, f
     return 0; // fail
 }
 
-float fill_char(float x0, float y0, float r, float g, float b, float a, unsigned int ch, int charSize, int bold)
+float fill_char_raw(float x0, float y0, Color color, unsigned int ch, int charSize, int bold)
 {
-    Glyph *glyph = find_or_cache_character(ch, charSize, bold, r, g, b);
-    fill_textured_rectangle(x0, y0 - glyph->charBaseline, x0 + glyph->textureWidth, y0 + glyph->textureHeight - glyph->charBaseline, 1, 1, 1, a, glyph->texture);
+    Glyph *glyph = find_or_cache_character(ch, charSize, bold, color.r, color.g, color.b);
+    Color textureColor = { 1, 1, 1, color.a };
+    // Glyph measurements are multiplied by scale factor but the coordinates are not
+    fill_textured_rectangle_raw(x0, y0 - glyph->charBaseline, x0 + glyph->textureWidth, y0 + glyph->textureHeight - glyph->charBaseline, textureColor, glyph->texture);
     return glyph->charWidth;
 }
 
-void fill_text(float x0, float y0, float r, float g, float b, float a, const char *str, int charSize, int bold)
+void fill_char(float x0, float y0, float scaleFactor, Color color, unsigned int ch, int charSize, int bold)
 {
+    fill_char_raw(x0 * scaleFactor, y0 * scaleFactor, color, ch, charSize * scaleFactor, bold);
+}
+
+void fill_text(float x0, float y0, float scaleFactor, Color color, const char *str, int charSize, int bold)
+{
+    float scaledX0 = x0 * scaleFactor;
     while (*str)
     {
-        float width = fill_char(x0, y0, r, g, b, a, *str++, charSize, bold);
-        x0 += width;
+        float width = fill_char_raw(scaledX0, y0 * scaleFactor, color, *str++, charSize * scaleFactor, bold);
+        scaledX0 += width;
     }
 }
 
 #define WIDTH 1024
 #define HEIGHT 768
+#define SCALE_FACTOR 1.75
+#define SCALED_HEIGHT (HEIGHT / SCALE_FACTOR)
 
 const char *line1 = "Request for Netflix show: ethnic aunties travelling and cooking";
 const char *line2 = "together. An Indian aunty goes to Mexico and meets the local aunties";
@@ -278,34 +299,48 @@ const char *lines[] = {line1, line2, line3, line4};
 // Per-frame animation tick.
 EM_BOOL draw_frame(double t, void *)
 {
-    clear_screen(1.0, 1.0, 1.0, 1);
+    float lineHeightFactor = 1.3125;
+    float mainFontSize = 15;
+    float counterFontSize = 13;
+
+    Color white = { 1.0, 1.0, 1.0, 1.0 };
+    Color outlineColor = { 204.0 / 255, 214.0 / 255, 221.0 / 255, 1.0 };
+    Color textColor = { 20.0 / 255, 23.0 / 255, 26.0 / 255, 1.0 };
+    Color textAuxColor = { 101.0 / 255, 119.0 / 255, 134.0 / 255, 1.0 };
+
+    float avatarTextureSize = 205;
+    float avatarDisplaySize = 49;
+    float counterTextureSize = 96;
+    float counterDisplaySize = 18.75;
+
+    clear_screen(white);
 
     // Outline
-    fill_rounded_rectangle(15 * 1.75, HEIGHT - 164 * 1.75, 565 * 1.75, HEIGHT - 15 * 1.75, 15 * 1.75, 204.0 / 255, 214.0 / 255, 221.0 / 255, 1.0);
-    fill_rounded_rectangle(16 * 1.75, HEIGHT - 163 * 1.75, 564 * 1.75, HEIGHT - 16 * 1.75, 14 * 1.75, 1.0, 1.0, 1.0, 1.0);
+    fill_rounded_rectangle(15, SCALED_HEIGHT - 164, 565, SCALED_HEIGHT - 15, 15, SCALE_FACTOR, outlineColor);
+    fill_rounded_rectangle(16, SCALED_HEIGHT - 163, 564, SCALED_HEIGHT - 16, 14, SCALE_FACTOR, white);
 
     // Avatar
-    fill_image((int)(30 * 1.75), (int)(HEIGHT - (25 + 49) * 1.75), 49.0 / 205 * 1.75, 1.0, 1.0, 1.0, 1.0, "avatar.png");
+    fill_image(30, SCALED_HEIGHT - (25 + 49), avatarDisplaySize / avatarTextureSize, SCALE_FACTOR, white, "avatar.png");
 
     // Header
-    fill_text((int)(89 * 1.75), (int)(HEIGHT - (25 + 15 * 1.3125) * 1.75), 20.0 / 255, 23.0 / 255, 26.0 / 255, 1.0, "visa is cleaning out his notes", 15 * 1.75, 1);
-    fill_text((int)(295 * 1.75), (int)(HEIGHT - (25 + 15 * 1.3125) * 1.75), 101.0 / 255, 119.0 / 255, 134.0 / 255, 1.0, "@visakanv", 15 * 1.75, 0);
-    fill_char((int)(370 * 1.75), (int)(HEIGHT - (25 + 15 * 1.3125) * 1.75), 101.0 / 255, 119.0 / 255, 134.0 / 255, 1.0, 0xB7, 15 * 1.75, 0);
-    fill_text((int)(379 * 1.75), (int)(HEIGHT - (25 + 15 * 1.3125) * 1.75), 101.0 / 255, 119.0 / 255, 134.0 / 255, 1.0, "Jun 12, 2019", 15 * 1.75, 0);
+    fill_text(89, SCALED_HEIGHT - (25 + mainFontSize * lineHeightFactor), SCALE_FACTOR, textColor, "visa is cleaning out his notes", mainFontSize, 1);
+    fill_text(295, SCALED_HEIGHT - (25 + mainFontSize * lineHeightFactor), SCALE_FACTOR, textAuxColor, "@visakanv", mainFontSize, 0);
+    fill_char(370, SCALED_HEIGHT - (25 + mainFontSize * lineHeightFactor), SCALE_FACTOR, textAuxColor, 0xB7, mainFontSize, 0);
+    fill_text(379, SCALED_HEIGHT - (25 + mainFontSize * lineHeightFactor), SCALE_FACTOR, textAuxColor, "Jun 12, 2019", mainFontSize, 0);
 
     // Body
     for (int i = 0; i < 4; i++)
     {
-        fill_text((int)(89 * 1.75), (int)(HEIGHT - (47 + (1 + i) * 15 * 1.3125) * 1.75), 20.0 / 255, 23.0 / 255, 26.0 / 255, 1.0, lines[i], 15 * 1.75, 0);
+        fill_text(89, SCALED_HEIGHT - (47 + (1 + i) * mainFontSize * lineHeightFactor), SCALE_FACTOR, textColor, lines[i], mainFontSize, 0);
     }
 
     // Counters
-    fill_image((int)(89 * 1.75), (int)(HEIGHT - (135 + 18.75) * 1.75), 18.75 / 96 * 1.75, 1.0, 1.0, 1.0, 1.0, "reply.png");
-    fill_text((int)(118 * 1.75), (int)(HEIGHT - (136 + 13 * 1.3125) * 1.75), 101.0 / 255, 119.0 / 255, 134.0 / 255, 1.0, "121", 13 * 1.75, 0);
-    fill_image((int)(220 * 1.75), (int)(HEIGHT - (135 + 18.75) * 1.75), 18.75 / 96 * 1.75, 1.0, 1.0, 1.0, 1.0, "retweet.png");
-    fill_text((int)(249 * 1.75), (int)(HEIGHT - (136 + 13 * 1.3125) * 1.75), 101.0 / 255, 119.0 / 255, 134.0 / 255, 1.0, "3.6K", 13 * 1.75, 0);
-    fill_image((int)(354 * 1.75), (int)(HEIGHT - (135 + 18.75) * 1.75), 18.75 / 96 * 1.75, 1.0, 1.0, 1.0, 1.0, "fav.png");
-    fill_text((int)(383 * 1.75), (int)(HEIGHT - (136 + 13 * 1.3125) * 1.75), 101.0 / 255, 119.0 / 255, 134.0 / 255, 1.0, "13.4K", 13 * 1.75, 0);
+    fill_image(89, SCALED_HEIGHT - (135 + counterDisplaySize), counterDisplaySize / counterTextureSize, SCALE_FACTOR, white, "reply.png");
+    fill_text(118, SCALED_HEIGHT - (136 + counterFontSize * lineHeightFactor), SCALE_FACTOR, textAuxColor, "121", counterFontSize, 0);
+    fill_image(220, SCALED_HEIGHT - (135 + counterDisplaySize), counterDisplaySize / counterTextureSize, SCALE_FACTOR, white, "retweet.png");
+    fill_text(249, SCALED_HEIGHT - (136 + counterFontSize * lineHeightFactor), SCALE_FACTOR, textAuxColor, "3.6K", counterFontSize, 0);
+    fill_image(354, SCALED_HEIGHT - (135 + counterDisplaySize), counterDisplaySize / counterTextureSize, SCALE_FACTOR, white, "fav.png");
+    fill_text(383, SCALED_HEIGHT - (136 + counterFontSize * lineHeightFactor), SCALE_FACTOR, textAuxColor, "13.4K", counterFontSize, 0);
 
     return EM_TRUE;
 }
