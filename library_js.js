@@ -17,7 +17,7 @@ mergeInto(LibraryManager.library, {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.globalAlpha = 1;
     ctx.fillStyle = `rgb(${r * 255} ${g * 255} ${b * 255})`;
-    ctx.font = (bold ? 'bold ' : '') + charSize + 'px Segoe UI';
+    ctx.font = (bold ? 'bold ' : '') + charSize + 'px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", sans-serif';
     ctx.textBaseline = 'bottom';
     var text = String.fromCharCode(unicodeChar);
     ctx.fillText(text, 0, charSize);
